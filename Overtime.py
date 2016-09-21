@@ -17,43 +17,14 @@ harvest_headers = {
     'Authorization': 'Basic Y21vcmlrdW5pQHJldmFjb21tLmNvbToqNjAlaEZ4ViVSWHU='
 }
 
+contractors = ['Alfonso', 'Amos', 'Luke', 'Rex', 'Richard']
+
 def init():
     # Harvest - Build request & load projects
     projects = requests.get('https://revacomm.harvestapp.com/projects', headers=harvest_headers)
     projects_json = projects.json()
 
     return projects_json
-
-
-def harvestBudget(project_code, projects):
-    # Find project ID
-    project_id = None
-    project_budget = 0
-    starts_on = '20000101'
-    today = datetime.datetime.now().strftime("%Y%m%d")
-    for project in projects:
-        project = project['project']
-        if project["code"] == project_code:
-            project_id = project["id"]
-            project_budget = project["budget"]
-            if not project_budget:
-                return ("ERROR: No budget has been assigned to " + project["name"] + ".", None, None)
-            break
-
-    # BILLABLE
-    entries = requests.get('https://revacomm.harvestapp.com/projects/' + str(project_id) + '/entries?from=' + starts_on + '&to=' + today + '&billable=yes', headers=harvest_headers)
-    entries_json = entries.json()
-    if type(entries_json) is not list and entries_json.get("error", None):
-        return ("ERROR: " + project_code + " not found.", None, None)
-
-    billable = 0
-    for entry in entries_json:
-        entry = entry['day_entry']
-        billable += entry['hours']
-
-    burn = billable / project_budget * 100
-    remain = 100 - burn
-    return (None, burn, remain)
 
 
 def openExcel(filename):
@@ -95,7 +66,7 @@ def outputToExcel(ws, project, index):
         c.value = val
 
 
-def userTotalTime(userTimeJson):
+def userTotalTime(userTimeJson, isContract):
     hours = 0
     timeByDay = {}
     for timeEntry in userTimeJson:
@@ -104,8 +75,12 @@ def userTotalTime(userTimeJson):
 
         isWeekend = False
         date = datetime.datetime.strptime(spentAt, '%Y-%m-%d')
-        if date.weekday() >= 5:
-            isWeekend = True
+        if not isContract:
+            if date.weekday() >= 5:
+                isWeekend = True
+        else:  # Contractors work our Tue-Sat
+            if date.weekday() == 0 or date.weekday() == 6:
+                isWeekend = True
 
         if spentAt not in timeByDay:
             timeByDay[spentAt] = {
@@ -116,25 +91,28 @@ def userTotalTime(userTimeJson):
         hours = hours + timeEntry["hours"]
 
     over = 0
+    under = 0
     for date in timeByDay:
         weekend = timeByDay[date]["weekend"]
         dailyHours = timeByDay[date]["hours"]
         if weekend:
             over += dailyHours
+        elif dailyHours < 8:
+            under += (8 - dailyHours)
         elif dailyHours > 8:
-            over += dailyHours - 8
+            over += (dailyHours - 8)
+    over -= under
+    if over < 0:
+        over = 0
     return (hours, over)
 
-if __name__ == '__main__':
-    # dayOfYear = datetime.datetime.now().timetuple().tm_yday + 1
-    # for day in range(1, dayOfYear):
-    #     print day
-    #     entry = requests.get('https://revacomm.harvestapp.com/daily/' + str(day) + '/2016', headers=harvest_headers)
-    #     entry_json = entry.json()
-    #     print entry_json
 
+if __name__ == '__main__':
     firstDayOfYear = '20160101'
     today = str(datetime.datetime.today().strftime('%Y%m%d'))
+    
+    contractOver = 0
+    coreOver = 0
     peopleTime = {}
     people = requests.get('https://revacomm.harvestapp.com/people', headers=harvest_headers)
     people_json = people.json()
@@ -148,7 +126,12 @@ if __name__ == '__main__':
         userTime_json = userTime.json()
         if not userTime_json:
             continue
-        hours, over = userTotalTime(userTime_json)
+        isContract = first in contractors
+        hours, over = userTotalTime(userTime_json, isContract)
+        if isContract:
+            contractOver += over
+        else:
+            coreOver += over
         print first + ": TOT: " + str(hours) + " OVER: " + str(over)
 
         peopleTime[uid] = {
@@ -158,49 +141,6 @@ if __name__ == '__main__':
             "overtime": over
         }
 
-
-    # https://YOURACCOUNT.harvestapp.com/people/{USER_ID}/entries?from=YYYYMMDD&to=YYYYMMDD
-    entry = requests.get('https://revacomm.harvestapp.com/people/', headers=harvest_headers)
-    entry_json = entry.json()
-    #print json.dumps(entry_json)
-
-    emps = [
-        ""
-    ]
-
-    # Initialize API calls
-    #harvest = init()
-
-    # # Loop Codes and Titles
-    # index = 2   # Start from 2, headers are in row 1
-    # wb, ws = openExcel(excel_filename)
-    # for project in input_json["Projects"]:
-    #     project_code = project["Harvest_Code"]
-    #     project_title = project["Wrike_Name"]
-    #
-    #     comp_per = wrikeCompletion(project_title, wrike)
-    #     budget = harvestBudget(project_code, harvest)
-    #     if comp_per[0] is not None:
-    #         print comp_per[0]
-    #         continue
-    #
-    #     if budget[0] is not None:
-    #         print budget[0]
-    #         continue
-    #
-    #     # Store results in JSON
-    #     progress = {
-    #         "Completion": comp_per[1],
-    #         "Burn": budget[1],
-    #         "Remain": budget[2]
-    #     }
-    #     project["Progress"] = progress
-    #
-    #     print "\n" + project_title
-    #     print "Project Completion: " + str(comp_per[1])
-    #     print "Budget Burn: " + str(budget[1])
-    #     print "Budget Remaining: " + str(budget[2])
-    #
-    #     outputToExcel(ws, project, index)
-    #     index += 1
-    # closeExcel(wb, excel_filename)
+    print "Core Over: " + str(coreOver)
+    print "Contract Over: " + str(contractOver)
+    print "Total Over: " + str(coreOver + contractOver)
