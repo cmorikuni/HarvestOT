@@ -14,7 +14,7 @@ excel_filename = 'rc_pm.xlsx'
 harvest_headers = {
     'Content-type': 'application/json',
     'Accept': 'application/json',
-    'Authorization': 'Basic Y21vcmlrdW5pQHJldmFjb21tLmNvbToqNjAlaEZ4ViVSWHU='
+    'Authorization': ''
 }
 
 contractors = ['Alfonso', 'Amos', 'Luke', 'Rex', 'Richard']
